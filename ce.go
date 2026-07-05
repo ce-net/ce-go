@@ -23,7 +23,6 @@
 package ce
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/hex"
@@ -73,13 +72,25 @@ func (m Message) JSON(v any) error { return json.Unmarshal(m.Payload, v) }
 // WantsReply reports whether the sender is awaiting a Reply (i.e. it was a request).
 func (m Message) WantsReply() bool { return m.ReplyToken != nil }
 
-// Status is the subset of GET /status a mesh ceapp needs. Extra fields are ignored, so the
-// client stays forward-compatible with newer nodes.
+// Status is GET /status. Extra fields are ignored, so the client stays forward-compatible with
+// newer nodes; the balance breakdown fields are pointers because older/economy-off nodes may omit
+// them.
 type Status struct {
-	NodeID  string `json:"node_id"`
-	Height  uint64 `json:"height"`
-	Economy *bool  `json:"economy"` // nil or true = economy on; false = personal-mesh (--no-economy)
+	NodeID         string  `json:"node_id"`
+	Height         uint64  `json:"height"`
+	Difficulty     uint8   `json:"difficulty"`
+	Balance        Amount  `json:"balance"`
+	Free           *Amount `json:"free"`
+	LockedChannels *Amount `json:"locked_channels"`
+	LockedBond     *Amount `json:"locked_bond"`
+	Bond           *Amount `json:"bond"`
+	Economy        *bool   `json:"economy"` // nil or true = economy on; false = personal-mesh
 }
+
+// EconomyEnabled reports whether the node runs the economy (a nil flag means an older node with
+// economy on). When false, economic calls (transfer/jobs/channels) return a 503 *Error — see
+// IsEconomyDisabled.
+func (s *Status) EconomyEnabled() bool { return s.Economy == nil || *s.Economy }
 
 // Handler answers an inbound request. Return the reply payload for a request, or a nil
 // payload to send no reply (e.g. for a fire-and-forget publish on the same topic). A
@@ -172,6 +183,35 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		req.Header.Set("Content-Type", "application/json")
 	}
 	// The node gates non-GET calls on Bearer auth; sending it on GETs too is harmless.
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, &Error{Method: method, Path: path, Detail: err.Error()}
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &Error{Method: method, Path: path, Status: resp.StatusCode, Detail: truncate(string(raw), 300)}
+	}
+	return raw, nil
+}
+
+// doRaw issues a request with a raw (non-JSON) body and returns the raw response body. Used for
+// the content-addressed blob store, where bodies are opaque bytes. body may be nil.
+func (c *Client) doRaw(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/octet-stream")
+	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -390,52 +430,20 @@ func (c *Client) Messages(ctx context.Context, subscribe ...string) (<-chan Mess
 }
 
 // streamOnce opens one SSE connection and pumps parsed messages to out until it drops or ctx ends.
+// It reuses the shared SSE parser (sseOnce/scanSSE), so there is exactly one SSE implementation.
 func (c *Client) streamOnce(ctx context.Context, out chan<- Message) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/mesh/messages/stream", nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-	// No client timeout on the stream itself; ctx governs its lifetime.
-	streamHTTP := &http.Client{Transport: c.HTTP.Transport}
-	resp, err := streamHTTP.Do(req)
-	if err != nil {
-		return &Error{Method: "GET", Path: "/mesh/messages/stream", Detail: err.Error()}
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return &Error{Method: "GET", Path: "/mesh/messages/stream", Status: resp.StatusCode, Detail: truncate(string(raw), 300)}
-	}
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) // allow large frames
-	var data []string
-	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		if line == "" { // event boundary
-			if len(data) > 0 {
-				if m, ok := parseMessage(strings.Join(data, "\n")); ok {
-					select {
-					case out <- m:
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-				}
-				data = data[:0]
-			}
-			continue
+	return c.sseOnce(ctx, "/mesh/messages/stream", func(b []byte) bool {
+		m, ok := parseMessage(string(b))
+		if !ok {
+			return true
 		}
-		if strings.HasPrefix(line, ":") { // SSE comment / keep-alive
-			continue
+		select {
+		case out <- m:
+			return true
+		case <-ctx.Done():
+			return false
 		}
-		if strings.HasPrefix(line, "data:") {
-			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
-		}
-	}
-	return sc.Err()
+	})
 }
 
 func parseMessage(data string) (Message, bool) {

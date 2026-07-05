@@ -59,9 +59,38 @@ go run ./examples/quickstart
 | `Reply(ctx, token, payload)` | `POST /mesh/reply` |
 | `Serve(ctx, topics, Handler)` | subscribe → stream → reply loop |
 
-This is the surface a ceapp actually reaches for. The full node tier (jobs, signals, streams,
-wallet, blobs, economy) grows on top of these same primitives — see
-[`PLAN/ce-polyglot-sdks.md`](../PLAN/ce-polyglot-sdks.md).
+This is the surface a ceapp reaches for first. The full node tier grows on top of it.
+
+## Surface (Tier B — the full node tier)
+
+| Area | Methods | Node endpoint(s) |
+|---|---|---|
+| Status | `Status` (with `Balance` + breakdown), `EconomyEnabled` | `GET /status` |
+| Money | `Amount` (`FromCredits`/`ParseCredits`/`Credits`/`Add`/`Cmp`, base-unit-string JSON) | — |
+| Blobs | `PutBlob` / `GetBlob`, `CID` | `POST /blobs`, `GET /blobs/:hash` |
+| Objects | `PutObject` / `GetObject` (chunked, CID-verified) | many `/blobs` + manifest |
+| Jobs | `Bid` · `Jobs` · `Job` · `Kill` | `/jobs*` |
+| Capacity | `Atlas` · `Beacon` | `GET /atlas`, `GET /beacon` |
+| Names/discovery | `ClaimName` · `ResolveName` · `AdvertiseService` · `FindService` · `AdvertiseTag`/`FindTag` | `/names/*`, `/discovery/*` |
+| Economy | `Transfer` · `Channels`/`OpenChannel`/`SignReceipt`/`CloseChannel`/`ExpireChannel` · `History` | `/transfer`, `/channels/*`, `/history/:id` |
+| Streams | `Blocks` · `Transactions` · `SignalStream` · `Signals` | `/blocks/stream`, `/transactions/stream`, `/signals*` |
+
+**Money is always integer base units** (`1 credit = 10^18`), carried on the wire as a decimal
+string — never a float, never a JSON number (values exceed 2^53). `Amount` uses `math/big`.
+
+**Content addressing is portable.** `CID(data)` is the lowercase hex SHA-256 the node returns from
+`POST /blobs`; `PutObject` chunks at 1 MiB into a wire-stable manifest, so an object CID computed by
+any CE SDK refers to the same bytes.
+
+**Economy is optional.** On a personal-mesh node, economic calls return a 503 — check
+`ce.IsEconomyDisabled(err)` and degrade rather than treating it as a hard failure. (Economy is being
+extracted into an adapter and will eventually leave the substrate entirely.)
+
+```sh
+go run ./examples/tierb    # live check: status, blob/object round-trips, discovery, economy-degrade
+```
+
+Full strategy and the two-tier model: [`PLAN/ce-polyglot-sdks.md`](../PLAN/ce-polyglot-sdks.md).
 
 ## Conventions (identical across every CE SDK)
 
