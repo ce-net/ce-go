@@ -74,10 +74,8 @@ jobs, names/discovery, economy, typed streams) grows on top. Both are covered by
 go build ./... && go vet ./... && go test ./...        # stdlib-only, fast
 go run ./examples/quickstart                            # against a live node (ce start)
 ```
-Then run the cross-language kit — the real gate:
-```sh
-cd ../ce-conformance && ./run.sh                        # ce-go must stay green in the matrix
-```
+Then run the cross-language kit — the real gate (see the `ce-conformance` repo): `./run.sh` builds
+a matrix of every SDK against a live node; ce-go must stay green in it.
 Reproduce-first for bugs: add the failing test before the fix. Tests use `net/http/httptest` fakes;
 end-to-end confidence comes from the conformance kit against a real node.
 
