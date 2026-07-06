@@ -72,11 +72,14 @@ func (m Message) JSON(v any) error { return json.Unmarshal(m.Payload, v) }
 // WantsReply reports whether the sender is awaiting a Reply (i.e. it was a request).
 func (m Message) WantsReply() bool { return m.ReplyToken != nil }
 
-// Status is GET /status. Extra fields are ignored, so the client stays forward-compatible with
-// newer nodes; the balance breakdown fields are pointers because older/economy-off nodes may omit
-// them.
+// Status is GET /status. Missing fields decode to their zero value, so the client works with both
+// node shapes: a core (economy-free) node returns only node_id/peer_id/listen_port/economy, while
+// an economy node also returns the chain/balance fields. Check EconomyEnabled before trusting them.
 type Status struct {
-	NodeID         string  `json:"node_id"`
+	NodeID     string `json:"node_id"`
+	PeerID     string `json:"peer_id"`     // libp2p peer id (core node); older nodes omit it -> ""
+	ListenPort uint16 `json:"listen_port"` // P2P listen port (core node); older nodes omit it -> 0
+	// Chain/economy fields — present on an economy node, omitted (0) by a core (economy-free) node.
 	Height         uint64  `json:"height"`
 	Difficulty     uint8   `json:"difficulty"`
 	Balance        Amount  `json:"balance"`
@@ -84,12 +87,13 @@ type Status struct {
 	LockedChannels *Amount `json:"locked_channels"`
 	LockedBond     *Amount `json:"locked_bond"`
 	Bond           *Amount `json:"bond"`
-	Economy        *bool   `json:"economy"` // nil or true = economy on; false = personal-mesh
+	Economy        *bool   `json:"economy"` // nil or true = economy on; false = core/personal-mesh
 }
 
 // EconomyEnabled reports whether the node runs the economy (a nil flag means an older node with
-// economy on). When false, economic calls (transfer/jobs/channels) return a 503 *Error — see
-// IsEconomyDisabled.
+// economy on). When false, the chain fields above are meaningless and economic calls
+// (transfer/jobs/channels/names/history/data) return a 503 *Error — the chain, market, and billing
+// live in the economy adapter. See IsEconomyDisabled.
 func (s *Status) EconomyEnabled() bool { return s.Economy == nil || *s.Economy }
 
 // Handler answers an inbound request. Return the reply payload for a request, or a nil

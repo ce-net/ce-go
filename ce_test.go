@@ -205,3 +205,25 @@ func TestErrorSurfacesNodeDetail(t *testing.T) {
 		t.Fatalf("error did not carry node detail: %+v", ce)
 	}
 }
+
+func TestCoreNodeSlimStatus(t *testing.T) {
+	// A core (economy-free) node returns only node_id/peer_id/listen_port/economy.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"node_id":"abc123","peer_id":"12D3KooWCoreNode","listen_port":4001,"economy":false}`))
+	}))
+	defer srv.Close()
+	c := Connect(WithBaseURL(srv.URL), WithToken("t"))
+	s, err := c.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.NodeID != "abc123" || s.PeerID != "12D3KooWCoreNode" || s.ListenPort != 4001 {
+		t.Fatalf("core status decode: %+v", s)
+	}
+	if s.EconomyEnabled() {
+		t.Fatal("economy should be disabled on a core node")
+	}
+	if s.Height != 0 || !s.Balance.IsZero() {
+		t.Fatalf("chain fields should be zero on a core node: height=%d balance=%s", s.Height, s.Balance.Credits())
+	}
+}
