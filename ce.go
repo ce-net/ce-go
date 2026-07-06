@@ -390,6 +390,33 @@ func (c *Client) Reply(ctx context.Context, token uint64, payload []byte) error 
 	return err
 }
 
+// AppInstalled is the outcome of MeshAppInstall — the installed app slug + its version.
+type AppInstalled struct {
+	App     string `json:"app"`
+	Version string `json:"version"`
+}
+
+// MeshAppInstall installs a published ceapp on a remote node over the mesh (POST /mesh-app-install) —
+// the programmatic form of `ce app install <app> --on node=<id>`, cap-gated by the node. The node
+// forwards an AppInstall RPC carrying grant (the caller's capability); the target verifies it and runs
+// its appmgr flow, resolving the manifest + artifacts from registry. Pass grant "" to rely on a
+// capability the node already holds for the target. Same app system as the CLI, Go skin.
+func (c *Client) MeshAppInstall(ctx context.Context, nodeID, app, registry, grant string) (AppInstalled, error) {
+	body := map[string]any{"node_id": nodeID, "app": app, "registry": registry}
+	if grant != "" {
+		body["grant"] = grant
+	}
+	raw, err := c.do(ctx, http.MethodPost, "/mesh-app-install", body)
+	if err != nil {
+		return AppInstalled{}, err
+	}
+	var r AppInstalled
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return AppInstalled{}, err
+	}
+	return r, nil
+}
+
 // ---- serve loop (be a mesh responder / capability provider) ----
 
 // Serve subscribes to topics and answers every inbound request with handler. It blocks until

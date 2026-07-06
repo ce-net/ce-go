@@ -15,10 +15,11 @@ import (
 // fakeNode is a minimal stand-in for the CE node HTTP API, enough to exercise the Tier-A
 // surface without a live node. It is the local seed of the language-agnostic conformance kit.
 type fakeNode struct {
-	mu        chan struct{}
-	published map[string][]byte // topic -> last payload
-	sent      map[string][]byte // to+topic -> payload
-	replies   chan replied
+	mu          chan struct{}
+	published   map[string][]byte // topic -> last payload
+	sent        map[string][]byte // to+topic -> payload
+	replies     chan replied
+	lastInstall map[string]string // last /mesh-app-install request body
 }
 
 type replied struct {
@@ -28,10 +29,11 @@ type replied struct {
 
 func newFakeNode() *fakeNode {
 	return &fakeNode{
-		mu:        make(chan struct{}, 1),
-		published: map[string][]byte{},
-		sent:      map[string][]byte{},
-		replies:   make(chan replied, 4),
+		mu:          make(chan struct{}, 1),
+		published:   map[string][]byte{},
+		sent:        map[string][]byte{},
+		replies:     make(chan replied, 4),
+		lastInstall: map[string]string{},
 	}
 }
 
@@ -92,6 +94,21 @@ func (f *fakeNode) handler() http.Handler {
 		f.replies <- replied{token: b.Token, payload: p}
 		w.WriteHeader(200)
 	})
+	mux.HandleFunc("/mesh-app-install", func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			NodeID   string `json:"node_id"`
+			App      string `json:"app"`
+			Registry string `json:"registry"`
+			Grant    string `json:"grant"`
+		}
+		json.NewDecoder(r.Body).Decode(&b)
+		f.lock()
+		f.lastInstall = map[string]string{
+			"node_id": b.NodeID, "app": b.App, "registry": b.Registry, "grant": b.Grant,
+		}
+		f.unlock()
+		json.NewEncoder(w).Encode(map[string]string{"app": b.App, "version": "1.2.3"})
+	})
 	// SSE: emit exactly one inbound request frame, then hold the connection open on ctx.
 	mux.HandleFunc("/mesh/messages/stream", func(w http.ResponseWriter, r *http.Request) {
 		fl, ok := w.(http.Flusher)
@@ -125,6 +142,31 @@ func TestStatus(t *testing.T) {
 	}
 	if !s.EconomyEnabled() {
 		t.Fatalf("expected economy enabled, got %v", s.Economy)
+	}
+}
+
+func TestMeshAppInstall(t *testing.T) {
+	f := newFakeNode()
+	srv := httptest.NewServer(f.handler())
+	defer srv.Close()
+	c := Connect(WithBaseURL(srv.URL), WithToken("t"))
+
+	got, err := c.MeshAppInstall(context.Background(), "abc123", "foo", "https://ce-net.com", "cap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.App != "foo" || got.Version != "1.2.3" {
+		t.Fatalf("bad AppInstalled: %+v", got)
+	}
+	// the wire body mirrors `ce app install <app> --on node=<id>`
+	f.lock()
+	li := f.lastInstall
+	f.unlock()
+	want := map[string]string{"node_id": "abc123", "app": "foo", "registry": "https://ce-net.com", "grant": "cap"}
+	for k, v := range want {
+		if li[k] != v {
+			t.Fatalf("install body[%s]=%q want %q (full: %+v)", k, li[k], v, li)
+		}
 	}
 }
 
