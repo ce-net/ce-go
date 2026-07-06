@@ -90,7 +90,7 @@ extracted into an adapter and will eventually leave the substrate entirely.)
 go run ./examples/tierb    # live check: status, blob/object round-trips, discovery, economy-degrade
 ```
 
-Full strategy and the two-tier model: [`PLAN/ce-polyglot-sdks.md`](../PLAN/ce-polyglot-sdks.md).
+Full rationale and the two-tier model: [DESIGN.md](DESIGN.md).
 
 ## Conventions (identical across every CE SDK)
 
@@ -102,13 +102,20 @@ Full strategy and the two-tier model: [`PLAN/ce-polyglot-sdks.md`](../PLAN/ce-po
 - **Errors** surface as `*ce.Error` carrying the node's status and body detail.
 - **Streams** reconnect automatically with backoff; cancel the `context.Context` to stop.
 
-## Design
+## Design & ideas
 
-The client is a thin, I/O-bound marshaller over the node's HTTP API — the heavy work (mesh
-routing, NAT, crypto, containers) happens in the Rust node, so the client's language is a free,
-performance-neutral choice. See `PLAN/ce-polyglot-sdks.md` for the polyglot SDK strategy and the
-scalability model (the substrate stays Rust; SDKs are thin; hot compute is a Rust capability every
-language calls for free).
+The client is a thin, I/O-bound marshaller over the node's HTTP API — the heavy work (mesh routing,
+NAT, crypto, containers) happens in the Rust node, so the client's language is a free,
+performance-neutral choice.
+
+- **[DESIGN.md](DESIGN.md)** — the decisions behind ce-go and the polyglot model (why stdlib-only,
+  why no crypto, the wire conventions, substrate-only `Status`), and how to work on it.
+- **[IDEAS.md](IDEAS.md)** — five non-obvious things this system makes possible (a mesh standard
+  library, self-distributing software, a heterogeneous notebook, an ambient capability fabric,
+  conformance-as-trust) — why you'd want them and how they work on these primitives.
+
+ce-go is one of four CE SDKs (Rust `ce-rs`, TypeScript `@ce-net/sdk`, Python `ce.py`, Go `ce-go`),
+kept behaviorally identical by the [`ce-conformance`](https://github.com/ce-net/ce-conformance) kit.
 
 ## Test
 
