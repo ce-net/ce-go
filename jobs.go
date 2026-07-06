@@ -6,74 +6,11 @@ import (
 	"net/http"
 )
 
-// BidSpec describes a container job to bid for.
-type BidSpec struct {
-	Image        string   `json:"image"`
-	Cmd          []string `json:"cmd"`
-	CPUCores     uint32   `json:"cpu_cores"`
-	MemMB        uint64   `json:"mem_mb"`
-	DurationSecs uint64   `json:"duration_secs"`
-	Bid          Amount   `json:"bid"`
-}
-
-// Job is a container job's state. Optional fields are pointers (absent until the job has a payer,
-// container, or settled cost).
-type Job struct {
-	JobID       string  `json:"job_id"`
-	Status      string  `json:"status"`
-	Payer       *string `json:"payer"`
-	ContainerID *string `json:"container_id"`
-	Cost        *Amount `json:"cost"`
-	Bid         *Amount `json:"bid"`
-}
-
-// Bid submits a container job bid (POST /jobs/bid) and returns the job id. Economy-gated: returns
-// a 503 *Error on an economy-off node (see IsEconomyDisabled).
-func (c *Client) Bid(ctx context.Context, spec BidSpec) (string, error) {
-	raw, err := c.do(ctx, http.MethodPost, "/jobs/bid", spec)
-	if err != nil {
-		return "", err
-	}
-	var r struct {
-		JobID string `json:"job_id"`
-	}
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return "", err
-	}
-	return r.JobID, nil
-}
-
-// Jobs lists all jobs (GET /jobs).
-func (c *Client) Jobs(ctx context.Context) ([]Job, error) {
-	raw, err := c.do(ctx, http.MethodGet, "/jobs", nil)
-	if err != nil {
-		return nil, err
-	}
-	var jobs []Job
-	if err := json.Unmarshal(raw, &jobs); err != nil {
-		return nil, err
-	}
-	return jobs, nil
-}
-
-// Job fetches one job's state (GET /jobs/:id).
-func (c *Client) Job(ctx context.Context, jobID string) (Job, error) {
-	raw, err := c.do(ctx, http.MethodGet, "/jobs/"+jobID, nil)
-	if err != nil {
-		return Job{}, err
-	}
-	var j Job
-	if err := json.Unmarshal(raw, &j); err != nil {
-		return Job{}, err
-	}
-	return j, nil
-}
-
-// Kill force-stops a job's container (DELETE /jobs/:id).
-func (c *Client) Kill(ctx context.Context, jobID string) error {
-	_, err := c.do(ctx, http.MethodDelete, "/jobs/"+jobID, nil)
-	return err
-}
+// The paid job market (BidSpec/Job, Bid/Jobs/Job/Kill) is NOT a substrate concept — money and the
+// compute market belong to the economy ceapp. That surface moved to the economy adapter's Go SDK
+// (github.com/ce-net/economy-adapter/clients/go, EconomyClient). The core substrate SDK keeps only
+// the capacity atlas and the beacon below (placement + verifiable randomness are substrate
+// primitives any app — economy or not — reads).
 
 // AtlasEntry is one peer's advertised capacity (GET /atlas).
 type AtlasEntry struct {

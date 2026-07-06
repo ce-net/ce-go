@@ -123,24 +123,11 @@ func sseTyped[T any](c *Client, ctx context.Context, path string) <-chan T {
 	return out
 }
 
-// BlockEvent is one block from the /blocks/stream SSE.
-type BlockEvent struct {
-	Index     uint64 `json:"index"`
-	Hash      string `json:"hash"`
-	PrevHash  string `json:"prev_hash"`
-	Timestamp uint64 `json:"timestamp"`
-	Miner     string `json:"miner"`
-	TxCount   uint32 `json:"tx_count"`
-	Nonce     uint64 `json:"nonce"`
-}
-
-// TxEvent is one transaction from the /transactions/stream SSE.
-type TxEvent struct {
-	ID     string `json:"id"`
-	Origin string `json:"origin"`
-	Kind   string `json:"kind"`
-	Amount Amount `json:"amount"`
-}
+// The chain event streams (block stream, transaction stream, and their BlockEvent/TxEvent types —
+// TxEvent carries an Amount) are NOT substrate: the chain and its money are the economy ceapp's.
+// That surface moved to the economy adapter's Go SDK (EconomyClient.Blocks / EconomyClient.
+// Transactions), which rides this client's SSE transport hatch (Client.SSE). The core substrate SDK
+// keeps only the CEP-1 signal stream below (cell signaling is a substrate protocol).
 
 // Signal is one CEP-1 signal (from /signals and /signals/stream).
 type Signal struct {
@@ -151,16 +138,6 @@ type Signal struct {
 	BurnProof    string   `json:"burn_proof"`
 	Nonce        uint64   `json:"nonce"`
 	ID           string   `json:"id"`
-}
-
-// Blocks streams newly produced blocks (SSE). The channel closes when ctx is cancelled.
-func (c *Client) Blocks(ctx context.Context) <-chan BlockEvent {
-	return sseTyped[BlockEvent](c, ctx, "/blocks/stream")
-}
-
-// Transactions streams transactions as they are applied (SSE).
-func (c *Client) Transactions(ctx context.Context) <-chan TxEvent {
-	return sseTyped[TxEvent](c, ctx, "/transactions/stream")
 }
 
 // SignalStream streams CEP-1 signals (SSE).

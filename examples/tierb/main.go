@@ -1,6 +1,7 @@
-// Tier-B demo / live check: exercises the full-node surface of ce-go against a live local node.
-// Blob + object round-trips are content-addressed and deterministic; economy calls degrade
-// gracefully on a personal-mesh (economy-off) node.
+// Tier-B demo / live check: exercises the substrate full-node surface of ce-go against a live local
+// node — content-addressed blob + object round-trips (deterministic), the capacity atlas, the
+// beacon, and CEP-1 signals. The MONEY surface (transfer/jobs/channels) is not substrate; it lives
+// in the economy adapter's Go SDK (github.com/ce-net/economy-adapter/clients/go) with its own demo.
 //
 //	go run ./examples/tierb
 package main
@@ -78,18 +79,7 @@ func main() {
 		fmt.Printf("resolve unclaimed name: found=%v id=%q\n", ok, id)
 	}
 
-	// Economy is gated on a personal-mesh node — the SDK surfaces it as IsEconomyDisabled.
-	_, err = c.Transfer(ctx, s.NodeID, ce.FromCredits(1))
-	switch {
-	case err == nil:
-		fmt.Println("transfer: succeeded (economy on)")
-	case ce.IsEconomyDisabled(err):
-		fmt.Println("transfer: economy disabled on this node (degraded gracefully, as expected)")
-	default:
-		fmt.Printf("transfer: unexpected error: %v\n", err)
-	}
-
-	fmt.Println("tier-b live check complete")
+	fmt.Println("tier-b substrate live check complete")
 }
 
 func short(h string) string {

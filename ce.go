@@ -84,9 +84,10 @@ type Status struct {
 
 // EconomyEnabled reports whether an economy adapter runs on this node (a nil flag means an older
 // node with economy on). When false, the ledger (height/balance) and economic calls
-// (transfer/jobs/channels/names/history/data) are unavailable — they return a 503 *Error
-// (IsEconomyDisabled). The chain, market, and billing are the economy adapter's, not the substrate's;
-// their typed API belongs to the economy adapter's own SDK, not to this core client.
+// (transfer/jobs/channels/history) are unavailable — they return a 503 *Error (the economy adapter's
+// Go SDK exposes economy.IsEconomyDisabled for that). The chain, market, and billing are the economy
+// adapter's, not the substrate's; their typed API belongs to the economy adapter's own SDK
+// (github.com/ce-net/economy-adapter/clients/go), not to this core substrate client.
 func (s *Status) EconomyEnabled() bool { return s.Economy == nil || *s.Economy }
 
 // Handler answers an inbound request. Return the reply payload for a request, or a nil
@@ -229,6 +230,34 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+// ---- transport hatch (for domain-SDK ceapps) ----
+//
+// Core `ce` is substrate only; every domain concept (money, reputation, …) is its own ceapp with
+// its OWN typed SDK that rides this client's transport. Do/DoRaw/SSE are the exported hatch those
+// SDKs use so they inherit auth (Bearer token), URL resolution ($CE_NODE_URL), and *Error handling
+// without re-implementing any of it. Mirrors ce-rs's get_json/post_json/post_void/open_sse hatch.
+
+// Do issues a JSON request against the node (auth + URL + *Error handling applied) and returns the
+// raw response body. body may be nil (no request body). This is the request/response transport hatch
+// domain-SDK ceapps (e.g. ce-economy) ride; app code should prefer the typed methods.
+func (c *Client) Do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	return c.do(ctx, method, path, body)
+}
+
+// DoRaw issues a request with a raw (non-JSON) body and returns the raw response body — the
+// octet-stream transport hatch for content-addressed bytes. body may be nil.
+func (c *Client) DoRaw(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	return c.doRaw(ctx, method, path, body)
+}
+
+// SSE opens path as a Server-Sent-Events stream and returns a channel of each event's raw `data:`
+// payload, reconnecting with backoff until ctx is cancelled. This is the streaming transport hatch
+// domain-SDK ceapps ride to build typed event streams (e.g. the economy adapter's chain block/tx
+// streams). The channel closes when ctx is cancelled.
+func (c *Client) SSE(ctx context.Context, path string) <-chan []byte {
+	return c.sseEvents(ctx, path)
 }
 
 

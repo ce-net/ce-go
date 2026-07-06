@@ -10,60 +10,9 @@ import (
 	"testing"
 )
 
-func TestAmountParseAndRender(t *testing.T) {
-	cases := []struct{ in, credits, base string }{
-		{"1", "1", "1000000000000000000"},
-		{"1.5", "1.5", "1500000000000000000"},
-		{"0.000000000000000001", "0.000000000000000001", "1"},
-		{"1000000000", "1000000000", "1000000000000000000000000000"}, // 1e9 credits > 2^53
-		{".5", "0.5", "500000000000000000"},
-		{"5.", "5", "5000000000000000000"},
-	}
-	for _, c := range cases {
-		a, err := ParseCredits(c.in)
-		if err != nil {
-			t.Fatalf("ParseCredits(%q): %v", c.in, err)
-		}
-		if a.Credits() != c.credits {
-			t.Errorf("ParseCredits(%q).Credits() = %q, want %q", c.in, a.Credits(), c.credits)
-		}
-		if a.Base().String() != c.base {
-			t.Errorf("ParseCredits(%q).Base() = %s, want %s", c.in, a.Base(), c.base)
-		}
-	}
-}
-
-func TestAmountRejectsGarbage(t *testing.T) {
-	for _, bad := range []string{"", "  ", "-1", "1.2.3", "abc", "1.0000000000000000001" /* 19 dp */} {
-		if _, err := ParseCredits(bad); err == nil {
-			t.Errorf("ParseCredits(%q) should have failed", bad)
-		}
-	}
-}
-
-func TestAmountJSONIsBaseUnitString(t *testing.T) {
-	a := FromCredits(2) // 2e18 base units
-	b, err := json.Marshal(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(b) != `"2000000000000000000"` {
-		t.Fatalf("Amount JSON = %s, want quoted base-unit string", b)
-	}
-	// Round-trip a value far beyond 2^53 to prove big-int handling.
-	var got Amount
-	if err := json.Unmarshal([]byte(`"123456789012345678901234567890"`), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Base().String() != "123456789012345678901234567890" {
-		t.Fatalf("big amount round-trip lost precision: %s", got.Base())
-	}
-	// A bare JSON number must also decode.
-	var n Amount
-	if err := json.Unmarshal([]byte(`42`), &n); err != nil || n.Base().Int64() != 42 {
-		t.Fatalf("bare number amount decode: %v (%s)", err, n.Base())
-	}
-}
+// Substrate Tier-B tests: content-addressed blobs/objects + the substrate view of /status. The
+// money surface (Amount, jobs, transfer/economy-gating) moved to the economy adapter's Go SDK and
+// its tests live there (github.com/ce-net/economy-adapter/clients/go).
 
 func TestCIDMatchesSHA256(t *testing.T) {
 	data := []byte("hello")
@@ -73,7 +22,7 @@ func TestCIDMatchesSHA256(t *testing.T) {
 	}
 }
 
-// blobStore is a fake content-addressed node for object round-trip + jobs decode tests.
+// blobFakeNode is a fake content-addressed node for the object round-trip test.
 func blobFakeNode() (http.Handler, map[string][]byte) {
 	store := map[string][]byte{}
 	mux := http.NewServeMux()
@@ -149,44 +98,6 @@ func TestManifestWireShape(t *testing.T) {
 	want := `{"kind":"ce-object-v1","chunk_size":1048576,"total_size":5,"chunks":["aa","bb"]}`
 	if string(b) != want {
 		t.Fatalf("manifest JSON = %s\nwant %s", b, want)
-	}
-}
-
-func TestJobsDecode(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A job with an optional cost present as a base-unit string.
-		w.Write([]byte(`[{"job_id":"j1","status":"running","cost":"2500000000000000000"}]`))
-	}))
-	defer srv.Close()
-	c := Connect(WithBaseURL(srv.URL), WithToken("t"))
-	jobs, err := c.Jobs(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(jobs) != 1 || jobs[0].JobID != "j1" || jobs[0].Status != "running" {
-		t.Fatalf("bad jobs: %+v", jobs)
-	}
-	if jobs[0].Cost == nil || jobs[0].Cost.Credits() != "2.5" {
-		t.Fatalf("job cost decode: %+v", jobs[0].Cost)
-	}
-	if jobs[0].Payer != nil {
-		t.Fatalf("absent payer should be nil, got %v", *jobs[0].Payer)
-	}
-}
-
-func TestEconomyDisabledDetection(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("economy disabled"))
-	}))
-	defer srv.Close()
-	c := Connect(WithBaseURL(srv.URL), WithToken("t"))
-	_, err := c.Transfer(context.Background(), "peer", FromCredits(1))
-	if err == nil {
-		t.Fatal("expected error from economy-off node")
-	}
-	if !IsEconomyDisabled(err) {
-		t.Fatalf("IsEconomyDisabled should be true for a 503, got %v", err)
 	}
 }
 
