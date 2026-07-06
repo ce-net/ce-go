@@ -72,28 +72,21 @@ func (m Message) JSON(v any) error { return json.Unmarshal(m.Payload, v) }
 // WantsReply reports whether the sender is awaiting a Reply (i.e. it was a request).
 func (m Message) WantsReply() bool { return m.ReplyToken != nil }
 
-// Status is GET /status. Missing fields decode to their zero value, so the client works with both
-// node shapes: a core (economy-free) node returns only node_id/peer_id/listen_port/economy, while
-// an economy node also returns the chain/balance fields. Check EconomyEnabled before trusting them.
+// Status is GET /status — the core (substrate) node status. The core node is chain-free: height,
+// balance, and the rest of the ledger are NOT substrate concepts, they belong to the economy
+// adapter (see EconomyStatus). `Economy` reports whether an economy adapter is attached.
 type Status struct {
 	NodeID     string `json:"node_id"`
-	PeerID     string `json:"peer_id"`     // libp2p peer id (core node); older nodes omit it -> ""
-	ListenPort uint16 `json:"listen_port"` // P2P listen port (core node); older nodes omit it -> 0
-	// Chain/economy fields — present on an economy node, omitted (0) by a core (economy-free) node.
-	Height         uint64  `json:"height"`
-	Difficulty     uint8   `json:"difficulty"`
-	Balance        Amount  `json:"balance"`
-	Free           *Amount `json:"free"`
-	LockedChannels *Amount `json:"locked_channels"`
-	LockedBond     *Amount `json:"locked_bond"`
-	Bond           *Amount `json:"bond"`
-	Economy        *bool   `json:"economy"` // nil or true = economy on; false = core/personal-mesh
+	PeerID     string `json:"peer_id"`     // libp2p peer id (older economy nodes omit it -> "")
+	ListenPort uint16 `json:"listen_port"` // P2P listen port (older nodes omit it -> 0)
+	Economy    *bool  `json:"economy"`     // nil (old node) or true = economy attached; false = core
 }
 
-// EconomyEnabled reports whether the node runs the economy (a nil flag means an older node with
-// economy on). When false, the chain fields above are meaningless and economic calls
-// (transfer/jobs/channels/names/history/data) return a 503 *Error — the chain, market, and billing
-// live in the economy adapter. See IsEconomyDisabled.
+// EconomyEnabled reports whether an economy adapter runs on this node (a nil flag means an older
+// node with economy on). When false, the ledger (height/balance) and economic calls
+// (transfer/jobs/channels/names/history/data) are unavailable — they return a 503 *Error
+// (IsEconomyDisabled). The chain, market, and billing are the economy adapter's, not the substrate's;
+// their typed API belongs to the economy adapter's own SDK, not to this core client.
 func (s *Status) EconomyEnabled() bool { return s.Economy == nil || *s.Economy }
 
 // Handler answers an inbound request. Return the reply payload for a request, or a nil
@@ -241,7 +234,8 @@ func truncate(s string, n int) string {
 
 // ---- node ----
 
-// Status returns GET /status — node id, height, economy flag. Also the liveness check.
+// Status returns GET /status — the core node id, peer id, listen port, economy flag. Also the
+// liveness check.
 func (c *Client) Status(ctx context.Context) (*Status, error) {
 	raw, err := c.do(ctx, http.MethodGet, "/status", nil)
 	if err != nil {

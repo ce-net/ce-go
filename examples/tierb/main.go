@@ -27,7 +27,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("status: %v", err)
 	}
-	fmt.Printf("node=%s height=%d balance=%s economy=%v\n", s.NodeID, s.Height, s.Balance, s.EconomyEnabled())
+	fmt.Printf("node=%s peer=%s port=%d economy=%v\n", s.NodeID, s.PeerID, s.ListenPort, s.EconomyEnabled())
 
 	// Blob round-trip: the node's returned hash must equal our locally computed CID.
 	blob := []byte("hello ce-go tier b")

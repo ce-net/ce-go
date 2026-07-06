@@ -190,9 +190,10 @@ func TestEconomyDisabledDetection(t *testing.T) {
 	}
 }
 
-func TestStatusBalanceBreakdown(t *testing.T) {
+func TestSubstrateStatusIgnoresChainFields(t *testing.T) {
+	// Even when an economy node includes chain fields, the core Status decodes only substrate.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"node_id":"n","height":3,"difficulty":8,"balance":"1000000000000000000","free":"1000000000000000000","economy":false}`))
+		w.Write([]byte(`{"node_id":"n","peer_id":"p","listen_port":4001,"economy":true,"height":3,"balance":"1000000000000000000"}`))
 	}))
 	defer srv.Close()
 	c := Connect(WithBaseURL(srv.URL), WithToken("t"))
@@ -200,16 +201,7 @@ func TestStatusBalanceBreakdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Balance.Credits() != "1" {
-		t.Fatalf("balance = %s, want 1", s.Balance.Credits())
-	}
-	if s.Free == nil || s.Free.Credits() != "1" {
-		t.Fatalf("free breakdown = %v", s.Free)
-	}
-	if s.LockedBond != nil {
-		t.Fatalf("absent locked_bond should be nil")
-	}
-	if s.EconomyEnabled() {
-		t.Fatalf("economy:false should mean EconomyEnabled()=false")
+	if s.NodeID != "n" || s.PeerID != "p" || s.ListenPort != 4001 || !s.EconomyEnabled() {
+		t.Fatalf("substrate status = %+v", s)
 	}
 }

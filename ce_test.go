@@ -41,8 +41,9 @@ func (f *fakeNode) unlock() { <-f.mu }
 func (f *fakeNode) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-		econ := false
-		json.NewEncoder(w).Encode(Status{NodeID: "abc123", Height: 42, Economy: &econ})
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"node_id":"abc123","peer_id":"p","listen_port":4001,"economy":true,` +
+			`"height":42,"balance":"1000000000000000000","free":"1000000000000000000"}`))
 	})
 	mux.HandleFunc("/mesh/publish", func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
@@ -119,11 +120,11 @@ func TestStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.NodeID != "abc123" || s.Height != 42 {
-		t.Fatalf("bad status: %+v", s)
+	if s.NodeID != "abc123" || s.PeerID != "p" || s.ListenPort != 4001 {
+		t.Fatalf("bad substrate status: %+v", s)
 	}
-	if s.Economy == nil || *s.Economy != false {
-		t.Fatalf("expected economy=false (personal mesh), got %v", s.Economy)
+	if !s.EconomyEnabled() {
+		t.Fatalf("expected economy enabled, got %v", s.Economy)
 	}
 }
 
@@ -222,8 +223,5 @@ func TestCoreNodeSlimStatus(t *testing.T) {
 	}
 	if s.EconomyEnabled() {
 		t.Fatal("economy should be disabled on a core node")
-	}
-	if s.Height != 0 || !s.Balance.IsZero() {
-		t.Fatalf("chain fields should be zero on a core node: height=%d balance=%s", s.Height, s.Balance.Credits())
 	}
 }
