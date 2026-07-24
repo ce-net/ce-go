@@ -19,7 +19,7 @@
 //
 // This is the app / mesh tier (Tier A) — the surface a ceapp actually reaches for. The full
 // node tier (jobs, signals, streams, wallet, blobs, economy) grows on top of these same
-// primitives, driven by the conformance kit. See PLAN/ce-polyglot-sdks.md.
+// primitives, driven by the conformance kit (github.com/ce-net/ce-conformance).
 package ce
 
 import (
